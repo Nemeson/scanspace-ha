@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Floorplan Card
+        working-directory: ./scanspace-floorplan-card
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle Card into Custom Component
+        run: |
+          mkdir -p custom_components/scanspace/frontend
+          cp scanspace-floorplan-card/dist/scanspace-floorplan-card.js custom_components/scanspace/frontend/
+
+      - name: Create Zip Archive
+        run: |
+          cd custom_components
+          zip -r ../scanspace.zip scanspace
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scanspace.zip
+            scanspace-floorplan-card/dist/scanspace-floorplan-card.js
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}

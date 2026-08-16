@@ -1,0 +1,9 @@
+{
+  "name": "scanspace-floorplan-card",
+  "content_in_root": true,
+  "filename": "scanspace-floorplan-card.js",
+  "country": "DE",
+  "homeassistant": "2024.10.0",
+  "render_readme": true,
+  "hacs": "2.0.0"
+}

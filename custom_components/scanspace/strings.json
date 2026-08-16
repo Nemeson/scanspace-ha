@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ScanSpace Kopplungsmethode",
+        "description": "Wähle aus, wie ScanSpace mit Home Assistant gekoppelt werden soll:",
+        "menu_options": {
+          "mqtt": "MQTT Live-Synchronisation (Empfohlen)",
+          "webhook": "HTTP Webhook Upload",
+          "qr_pairing": "QR-Code Pairing mit App"
+        }
+      },
+      "mqtt": {
+        "title": "ScanSpace MQTT Setup",
+        "description": "ScanSpace abonniert automatisch die MQTT-Topics unter `scanspace/house/#`. Klicke auf Absenden, um die Integration zu aktivieren."
+      },
+      "webhook": {
+        "title": "ScanSpace Webhook Setup",
+        "description": "ScanSpace registriert einen Webhook-Endpunkt für direkte JSON-Uploads aus der App.",
+        "data": {
+          "url": "Home Assistant URL (Optional)"
+        }
+      },
+      "qr_pairing": {
+        "title": "ScanSpace QR-Code Pairing",
+        "description": "Die Integration wird initialisiert und generiert einen QR-Code für die ScanSpace Android-App."
+      }
+    },
+    "abort": {
+      "already_configured": "ScanSpace ist für diese Instanz bereits konfiguriert."
+    }
+  }
+}

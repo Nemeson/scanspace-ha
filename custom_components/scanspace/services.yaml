@@ -1,0 +1,35 @@
+reload:
+  name: Reload
+  description: ScanSpace-Daten neu laden.
+import_file:
+  name: Import File
+  description: ScanSpace JSON-Datei importieren.
+  fields:
+    file_path:
+      required: true
+      example: "/config/scanspace/export.json"
+      selector:
+        text:
+export_svg:
+  name: Export SVG
+  description: SVG-Grundriss einer Etage exportieren.
+  fields:
+    floor_id:
+      required: true
+      example: "floor_eg"
+      selector:
+        text:
+assign_entity:
+  name: Assign Entity
+  description: HA-Entity einem Möbelstück oder Zone zuordnen.
+  fields:
+    furniture_id:
+      required: true
+      example: "furn_001"
+      selector:
+        text:
+    entity_id:
+      required: true
+      example: "light.wohnzimmer_decke"
+      selector:
+        entity:
