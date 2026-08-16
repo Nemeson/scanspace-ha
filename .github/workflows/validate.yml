@@ -50,9 +50,7 @@ jobs:
           pip install pydantic>=2.0 jsonschema>=4.0 pytest pytest-asyncio
 
       - name: Run Pytest
-        env:
-          PYTHONPATH: .
-        run: pytest tests/
+        run: python -m pytest tests/
 
   test-frontend:
     name: Frontend Build & Tests

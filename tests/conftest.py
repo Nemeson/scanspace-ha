@@ -1,9 +1,15 @@
 """Test configuration and Home Assistant mock harness."""
 
+import os
 import sys
 from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock
 from enum import Enum
+
+# Ensure repository root is on sys.path
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 
 def create_ha_mocks():
@@ -166,6 +172,7 @@ def create_ha_mocks():
     cv_mod = ModuleType("homeassistant.helpers.config_validation")
     cv_mod.string = str
     cv_mod.boolean = bool
+    cv_mod.empty_config_schema = lambda domain: (lambda config: config)
 
     # 7. voluptuous
     try:

@@ -1,13 +1,22 @@
 {
   "domain": "scanspace",
   "name": "ScanSpace",
-  "version": "0.1.0-alpha.1",
+  "codeowners": [
+    "@Nemeson"
+  ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/Nemeson/scanspace-ha",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/Nemeson/scanspace-ha/issues",
-  "dependencies": ["http"],
-  "codeowners": ["@Nemeson"],
-  "requirements": ["pydantic>=2.0", "jsonschema>=4.0"],
-  "mqtt": ["scanspace/#"],
-  "iot_class": "local_push"
+  "mqtt": [
+    "scanspace/#"
+  ],
+  "requirements": [
+    "jsonschema>=4.0",
+    "pydantic>=2.0"
+  ],
+  "version": "0.1.0-alpha.1"
 }
