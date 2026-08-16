@@ -2,10 +2,12 @@ import os
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, LOGGER
 from .services import async_setup_services
 
+CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 

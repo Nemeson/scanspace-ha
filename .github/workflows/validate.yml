@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: HACS Action
-        uses: hacs/action/validate@main
+        uses: hacs/action@main
         with:
           category: integration
 
@@ -50,6 +50,8 @@ jobs:
           pip install pydantic>=2.0 jsonschema>=4.0 pytest pytest-asyncio
 
       - name: Run Pytest
+        env:
+          PYTHONPATH: .
         run: pytest tests/
 
   test-frontend:
