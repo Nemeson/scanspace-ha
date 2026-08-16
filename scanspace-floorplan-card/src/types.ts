@@ -1,10 +1,30 @@
+export interface FloorConfig {
+  id: string;
+  name: string;
+  svg_url?: string;
+}
+
+export interface StateStyle {
+  fill?: string;
+  stroke?: string;
+  width?: number;
+  opacity?: number;
+  icon?: string;
+  pulse?: boolean;
+}
+
 export interface FloorplanCardConfig {
   type: "custom:scanspace-floorplan";
-  house_id: string;
+  house_id?: string;
   floor_id?: string;
+  title?: string;
+  svg_url?: string;
+  floors?: FloorConfig[];
   show_entities?: string[];
   entity_click_action?: "toggle" | "more-info" | "navigate";
   entity_state_visualization?: Record<string, Record<string, StateStyle>>;
+  entity_styles?: Record<string, Record<string, StateStyle>>;
+  tap_actions?: Record<string, any>;
   show_zones?: boolean;
   show_furniture?: boolean;
   show_dimensions?: boolean;
@@ -15,13 +35,8 @@ export interface FloorplanCardConfig {
   min_zoom?: number;
   max_zoom?: number;
   default_zoom?: "fit" | number;
-}
-
-export interface StateStyle {
-  fill?: string;
-  stroke?: string;
-  width?: number;
-  icon?: string;
+  show_toolbar?: boolean;
+  pan_zoom?: boolean;
 }
 
 export interface HassEntity {

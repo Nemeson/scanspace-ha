@@ -63,23 +63,34 @@ class SvgRenderer {
     }
     applyEntityState(entityId, state, config) {
         const elements = this.data.filter((d) => d.entityId === entityId);
-        const style = config.entity_state_visualization?.[entityId]?.[state];
-        if (!style)
+        const styleMap = config.entity_styles ?? config.entity_state_visualization;
+        const rawStyle = styleMap?.[entityId]?.[state] ?? styleMap?.[entityId];
+        if (!rawStyle || typeof rawStyle !== "object")
             return;
+        const style = rawStyle;
         for (const item of elements) {
             const el = item.element;
-            if (style.fill) {
+            if (typeof style.fill === "string") {
                 if (el instanceof SVGGraphicsElement) {
                     el.setAttribute("fill", style.fill);
                 }
             }
-            if (style.stroke) {
+            if (typeof style.stroke === "string") {
                 el.setAttribute("stroke", style.stroke);
             }
-            if (style.width) {
+            if (style.width !== undefined) {
                 el.setAttribute("stroke-width", String(style.width));
             }
-            if (style.icon && item.type === "furniture") {
+            if (style.opacity !== undefined) {
+                el.setAttribute("opacity", String(style.opacity));
+            }
+            if (style.pulse || (state === "on" && entityId.startsWith("binary_sensor."))) {
+                el.classList.add("scanspace-pulse");
+            }
+            else {
+                el.classList.remove("scanspace-pulse");
+            }
+            if (typeof style.icon === "string" && item.type === "furniture") {
                 this._setIcon(el, style.icon);
             }
         }
@@ -109,7 +120,6 @@ class SvgRenderer {
         }
     }
     _setIcon(el, iconName) {
-        // Remove existing icon text if any
         const existing = el.querySelector("text.scanspace-icon");
         if (existing)
             existing.remove();
@@ -121,7 +131,6 @@ class SvgRenderer {
         text.setAttribute("font-family", "sans-serif");
         text.setAttribute("font-size", "16");
         text.setAttribute("fill", "#fff");
-        // Try to center in bbox; if not available, center of group transform
         try {
             const bbox = el.getBBox();
             text.setAttribute("x", String(bbox.x + bbox.width / 2));
@@ -134,33 +143,50 @@ class SvgRenderer {
         el.appendChild(text);
     }
 }
-async function fetchFloorplan(hass, houseId, floorId) {
+async function fetchFloorplan(hass, houseId, floorId, svgUrl) {
+    if (svgUrl) {
+        try {
+            const resp = await fetch(svgUrl, { headers: { "Accept": "image/svg+xml" } });
+            if (resp.ok) {
+                const svg = await resp.text();
+                return { svg, house_id: houseId ?? "default", floor_id: floorId ?? "default" };
+            }
+        }
+        catch {
+            // Fallback
+        }
+    }
+    const hId = houseId ?? "default";
+    const fId = floorId ?? "default";
     try {
-        // Try WebSocket API first; fallback to REST if unavailable
         const payload = await hass.callWS({
             type: "scanspace/floorplan",
-            house_id: houseId,
-            floor_id: floorId ?? "default",
+            house_id: hId,
+            floor_id: fId,
         });
         const data = payload;
-        if (!data.svg)
-            return null;
-        return {
-            svg: data.svg,
-            house_id: data.house_id ?? houseId,
-            floor_id: data.floor_id ?? floorId ?? "default",
-        };
+        if (data && data.svg) {
+            return {
+                svg: data.svg,
+                house_id: data.house_id ?? hId,
+                floor_id: data.floor_id ?? fId,
+            };
+        }
     }
     catch {
-        // Fallback: load static SVG from integration www folder
-        const floor = floorId ?? "default";
-        const url = `/local/scanspace/${houseId}_${floor}.svg`;
-        const resp = await fetch(url, { headers: { "Accept": "image/svg+xml" } });
-        if (!resp.ok)
-            return null;
-        const svg = await resp.text();
-        return { svg, house_id: houseId, floor_id: floor };
+        const url = `/local/scanspace/${hId}_${fId}.svg`;
+        try {
+            const resp = await fetch(url, { headers: { "Accept": "image/svg+xml" } });
+            if (resp.ok) {
+                const svg = await resp.text();
+                return { svg, house_id: hId, floor_id: fId };
+            }
+        }
+        catch {
+            // ignore
+        }
     }
+    return null;
 }
 function getEntityState(hass, entityId) {
     return hass.states[entityId];
@@ -170,7 +196,6 @@ function toggleEntity(hass, entityId) {
     hass.callService(domain, "toggle", { entity_id: entityId });
 }
 function moreInfoEntity(hass, entityId) {
-    // Dispatch standard HA more-info event
     const event = new CustomEvent("hass-more-info", {
         bubbles: true,
         composed: true,
@@ -194,6 +219,9 @@ class ScanSpaceFloorplanCard extends i {
     }
     setConfig(config) {
         this.config = config;
+        if (!this.activeFloorId) {
+            this.activeFloorId = config.floor_id ?? config.floors?.[0]?.id ?? "floor_eg";
+        }
     }
     connectedCallback() {
         super.connectedCallback();
@@ -203,11 +231,17 @@ class ScanSpaceFloorplanCard extends i {
         if (changedProps.has("hass") && this.hass && this.renderer) {
             this._applyEntityStates();
         }
+        if (changedProps.has("activeFloorId")) {
+            this._loadFloorplan();
+        }
     }
     async _loadFloorplan() {
         if (!this.hass || !this.config)
             return;
-        const data = await fetchFloorplan(this.hass, this.config.house_id, this.config.floor_id);
+        // Find matching floor config if available
+        const activeFloor = this.config.floors?.find((f) => f.id === this.activeFloorId);
+        const svgUrl = activeFloor?.svg_url ?? this.config.svg_url;
+        const data = await fetchFloorplan(this.hass, this.config.house_id, this.activeFloorId, svgUrl);
         if (!data) {
             this.renderer = undefined;
             this.requestUpdate();
@@ -220,7 +254,7 @@ class ScanSpaceFloorplanCard extends i {
     _applyEntityStates() {
         if (!this.renderer || !this.hass || !this.config)
             return;
-        const entities = this.config.show_entities ?? [];
+        const entities = this.config.show_entities ?? Object.keys(this.config.entity_styles ?? {});
         for (const entityId of entities) {
             const state = getEntityState(this.hass, entityId);
             if (state) {
@@ -232,7 +266,13 @@ class ScanSpaceFloorplanCard extends i {
         if (!this.hass || !this.config)
             return;
         if (item.entityId) {
-            const action = this.config.entity_click_action ?? "more-info";
+            const tapConfig = this.config.tap_actions?.[item.furnitureId ?? ""] ?? this.config.tap_actions?.[item.entityId];
+            if (tapConfig?.action === "call-service" && tapConfig.service) {
+                const [domain, service] = tapConfig.service.split(".");
+                this.hass.callService(domain, service, tapConfig.target ?? { entity_id: item.entityId });
+                return;
+            }
+            const action = this.config.entity_click_action ?? "toggle";
             if (action === "toggle") {
                 toggleEntity(this.hass, item.entityId);
             }
@@ -241,7 +281,6 @@ class ScanSpaceFloorplanCard extends i {
             }
         }
         else if (item.type === "furniture" || item.type === "zone") {
-            // TODO: open assign-entity dialog
             this._showAssignEntityDialog(item);
         }
     }
@@ -253,31 +292,76 @@ class ScanSpaceFloorplanCard extends i {
         });
         this.dispatchEvent(event);
     }
+    _selectFloor(floorId) {
+        if (this.activeFloorId === floorId)
+            return;
+        this.activeFloorId = floorId;
+        this.scale = 1;
+        this.panX = 0;
+        this.panY = 0;
+    }
+    _zoomIn() {
+        this.scale = this._clampZoom(this.scale * 1.25);
+        this._updateTransform();
+    }
+    _zoomOut() {
+        this.scale = this._clampZoom(this.scale * 0.8);
+        this._updateTransform();
+    }
+    _resetZoom() {
+        this.scale = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this._updateTransform();
+    }
     render() {
         if (!this.config) {
             return b `<div>No config</div>`;
         }
-        if (!this.renderer) {
-            return b `
-        <div class="container">
-          <div style="padding: 16px; color: #999">
-            Floorplan not available. Configure ScanSpace integration and ensure MQTT or webhook data is received.
-          </div>
-        </div>
-      `;
-        }
+        const title = this.config.title;
+        const floors = this.config.floors ?? [];
         return b `
+      ${title ? b `<div class="header">${title}</div>` : ""}
+      ${floors.length > 1 ? this._renderFloorSelector(floors) : ""}
       <div
-        class="container"
+        class="viewport-container"
         @pointerdown=${this._onPointerDown}
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
         @pointerleave=${this._onPointerUp}
         @dblclick=${this._onDoubleClick}
-        style="height: 100%; min-height: 300px;"
       >
-        ${this._renderSvg()}
+        ${this.renderer
+            ? this._renderSvg()
+            : b `
+              <div style="padding: 24px; text-align: center; color: rgba(255,255,255,0.6);">
+                Kein Grundriss verfügbar. Bitte ScanSpace Integration und SVG-Konfiguration prüfen.
+              </div>
+            `}
         <div class="tooltip" id="tooltip"></div>
+        ${this.config.show_toolbar !== false
+            ? b `
+              <div class="toolbar">
+                <button class="toolbar-btn" @click=${this._zoomIn} title="Zoom In">+</button>
+                <button class="toolbar-btn" @click=${this._zoomOut} title="Zoom Out">-</button>
+                <button class="toolbar-btn" @click=${this._resetZoom} title="Reset View">🎯</button>
+              </div>
+            `
+            : ""}
+      </div>
+    `;
+    }
+    _renderFloorSelector(floors) {
+        return b `
+      <div class="floor-selector">
+        ${floors.map((floor) => b `
+            <button
+              class="floor-pill ${this.activeFloorId === floor.id ? "active" : ""}"
+              @click=${() => this._selectFloor(floor.id)}
+            >
+              ${floor.name}
+            </button>
+          `)}
       </div>
     `;
     }
@@ -289,7 +373,6 @@ class ScanSpaceFloorplanCard extends i {
         return b `${svg}`;
     }
     _attachEventListeners(svg) {
-        // Re-attach only once per render
         if (svg.__scanspaceAttached)
             return;
         svg.__scanspaceAttached = true;
@@ -308,7 +391,7 @@ class ScanSpaceFloorplanCard extends i {
         if (!tooltip || !this.hass)
             return;
         const state = item.entityId ? getEntityState(this.hass, item.entityId) : undefined;
-        tooltip.textContent = `${item.type}${item.furnitureType ? ` (${item.furnitureType})` : ""}${state ? ` - ${state.state}` : ""}`;
+        tooltip.textContent = `${item.type}${item.furnitureType ? ` (${item.furnitureType})` : ""}${state ? ` · ${state.state}` : ""}`;
         tooltip.style.display = "block";
     }
     _hideTooltip() {
@@ -316,7 +399,7 @@ class ScanSpaceFloorplanCard extends i {
         if (tooltip)
             tooltip.style.display = "none";
     }
-    // --- Pan / Zoom / Touch ---
+    // --- Pan / Zoom / Touch Gestures ---
     _onPointerDown(e) {
         this.pointers.set(e.pointerId, e);
         this.isDragging = this.pointers.size === 1;
@@ -364,10 +447,7 @@ class ScanSpaceFloorplanCard extends i {
         }
     }
     _onDoubleClick() {
-        this.scale = 1;
-        this.panX = 0;
-        this.panY = 0;
-        this._updateTransform();
+        this._resetZoom();
     }
     _distance(a, b) {
         const dx = a.clientX - b.clientX;
@@ -375,7 +455,7 @@ class ScanSpaceFloorplanCard extends i {
         return Math.sqrt(dx * dx + dy * dy);
     }
     _clampZoom(zoom) {
-        const min = this.config?.min_zoom ?? 0.5;
+        const min = this.config?.min_zoom ?? 0.4;
         const max = this.config?.max_zoom ?? 5.0;
         return Math.max(min, Math.min(max, zoom));
     }
@@ -389,24 +469,72 @@ class ScanSpaceFloorplanCard extends i {
         g.setAttribute("transform", `translate(${this.panX},${this.panY}) scale(${this.scale})`);
     }
     getCardSize() {
-        return 5;
+        return 6;
     }
 }
 ScanSpaceFloorplanCard.properties = {
     hass: { attribute: false },
     config: { attribute: false },
+    activeFloorId: { state: true },
 };
 ScanSpaceFloorplanCard.styles = i$3 `
     :host {
       display: block;
       width: 100%;
+      background: var(--ha-card-background, var(--card-background-color, #1e1e1e));
+      border-radius: var(--ha-card-border-radius, 12px);
+      box-shadow: var(--ha-card-box-shadow, 0 2px 10px rgba(0, 0, 0, 0.2));
+      overflow: hidden;
+      font-family: var(--paper-font-body1_-_font-family, system-ui, -apple-system, sans-serif);
+      color: var(--primary-text-color, #ffffff);
     }
-    .container {
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      font-size: 16px;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .floor-selector {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+    }
+    .floor-pill {
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .floor-pill:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    .floor-pill.active {
+      background: var(--primary-color, #0288d1);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 2px 8px rgba(2, 136, 209, 0.4);
+    }
+    .viewport-container {
       position: relative;
       width: 100%;
+      min-height: 320px;
       overflow: hidden;
       touch-action: none;
       user-select: none;
+      background: var(--scanspace-card-bg, #141414);
     }
     svg {
       display: block;
@@ -419,20 +547,77 @@ ScanSpaceFloorplanCard.styles = i$3 `
     }
     .furniture {
       cursor: pointer;
+      transition: fill 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  filter 0.2s ease;
     }
     .furniture:hover {
-      filter: brightness(1.2);
+      filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6)) brightness(1.15);
+    }
+    .scanspace-pulse {
+      animation: scanspace-presence-pulse 2s infinite ease-in-out;
+    }
+    @keyframes scanspace-presence-pulse {
+      0% {
+        opacity: 0.35;
+        filter: drop-shadow(0 0 2px #00e676);
+      }
+      50% {
+        opacity: 1;
+        filter: drop-shadow(0 0 10px #00e676);
+      }
+      100% {
+        opacity: 0.35;
+        filter: drop-shadow(0 0 2px #00e676);
+      }
+    }
+    .toolbar {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      display: flex;
+      gap: 6px;
+      background: rgba(20, 20, 20, 0.8);
+      backdrop-filter: blur(8px);
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      z-index: 10;
+    }
+    .toolbar-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.85);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: bold;
+      transition: background 0.2s, color 0.2s;
+    }
+    .toolbar-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
     }
     .tooltip {
       position: absolute;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(15, 15, 15, 0.9);
+      backdrop-filter: blur(4px);
       color: #fff;
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 6px 10px;
+      border-radius: 6px;
       font-size: 12px;
+      font-weight: 500;
       pointer-events: none;
       display: none;
-      z-index: 10;
+      z-index: 20;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
     }
   `;
 customElements.define("scanspace-floorplan-card", ScanSpaceFloorplanCard);
@@ -440,6 +625,6 @@ window.customCards = window.customCards || [];
 window.customCards.push({
     type: "custom:scanspace-floorplan",
     name: "ScanSpace Floorplan",
-    description: "Interactive floorplan from ScanSpace AR measurements",
+    description: "Interactive multi-floor floorplan card from ScanSpace AR measurements",
     preview: true,
 });

@@ -1,4 +1,4 @@
-import { FloorplanData, FloorplanCardConfig, HomeAssistant, SvgElementData, HassEntity } from "./types";
+import { FloorplanData, FloorplanCardConfig, HomeAssistant, SvgElementData, HassEntity, StateStyle } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -46,23 +46,33 @@ export class SvgRenderer {
 
   applyEntityState(entityId: string, state: string, config: FloorplanCardConfig): void {
     const elements = this.data.filter((d) => d.entityId === entityId);
-    const style = config.entity_state_visualization?.[entityId]?.[state];
-    if (!style) return;
+    const styleMap = config.entity_styles ?? config.entity_state_visualization;
+    const rawStyle = styleMap?.[entityId]?.[state] ?? styleMap?.[entityId];
+    if (!rawStyle || typeof rawStyle !== "object") return;
+    const style = rawStyle as StateStyle;
 
     for (const item of elements) {
       const el = item.element;
-      if (style.fill) {
+      if (typeof style.fill === "string") {
         if (el instanceof SVGGraphicsElement) {
           el.setAttribute("fill", style.fill);
         }
       }
-      if (style.stroke) {
+      if (typeof style.stroke === "string") {
         el.setAttribute("stroke", style.stroke);
       }
-      if (style.width) {
+      if (style.width !== undefined) {
         el.setAttribute("stroke-width", String(style.width));
       }
-      if (style.icon && item.type === "furniture") {
+      if (style.opacity !== undefined) {
+        el.setAttribute("opacity", String(style.opacity));
+      }
+      if (style.pulse || (state === "on" && entityId.startsWith("binary_sensor."))) {
+        el.classList.add("scanspace-pulse");
+      } else {
+        el.classList.remove("scanspace-pulse");
+      }
+      if (typeof style.icon === "string" && item.type === "furniture") {
         this._setIcon(el, style.icon);
       }
     }
@@ -96,7 +106,6 @@ export class SvgRenderer {
   }
 
   private _setIcon(el: SVGElement, iconName: string): void {
-    // Remove existing icon text if any
     const existing = el.querySelector("text.scanspace-icon");
     if (existing) existing.remove();
 
@@ -109,7 +118,6 @@ export class SvgRenderer {
     text.setAttribute("font-size", "16");
     text.setAttribute("fill", "#fff");
 
-    // Try to center in bbox; if not available, center of group transform
     try {
       const bbox = (el as SVGGraphicsElement).getBBox();
       text.setAttribute("x", String(bbox.x + bbox.width / 2));
@@ -124,32 +132,53 @@ export class SvgRenderer {
 
 export async function fetchFloorplan(
   hass: HomeAssistant,
-  houseId: string,
-  floorId?: string
+  houseId?: string,
+  floorId?: string,
+  svgUrl?: string
 ): Promise<FloorplanData | null> {
+  if (svgUrl) {
+    try {
+      const resp = await fetch(svgUrl, { headers: { "Accept": "image/svg+xml" } });
+      if (resp.ok) {
+        const svg = await resp.text();
+        return { svg, house_id: houseId ?? "default", floor_id: floorId ?? "default" };
+      }
+    } catch {
+      // Fallback
+    }
+  }
+
+  const hId = houseId ?? "default";
+  const fId = floorId ?? "default";
+
   try {
-    // Try WebSocket API first; fallback to REST if unavailable
     const payload = await hass.callWS({
       type: "scanspace/floorplan",
-      house_id: houseId,
-      floor_id: floorId ?? "default",
+      house_id: hId,
+      floor_id: fId,
     });
     const data = payload as { svg?: string; house_id?: string; floor_id?: string };
-    if (!data.svg) return null;
-    return {
-      svg: data.svg,
-      house_id: data.house_id ?? houseId,
-      floor_id: data.floor_id ?? floorId ?? "default",
-    };
+    if (data && data.svg) {
+      return {
+        svg: data.svg,
+        house_id: data.house_id ?? hId,
+        floor_id: data.floor_id ?? fId,
+      };
+    }
   } catch {
-    // Fallback: load static SVG from integration www folder
-    const floor = floorId ?? "default";
-    const url = `/local/scanspace/${houseId}_${floor}.svg`;
-    const resp = await fetch(url, { headers: { "Accept": "image/svg+xml" } });
-    if (!resp.ok) return null;
-    const svg = await resp.text();
-    return { svg, house_id: houseId, floor_id: floor };
+    const url = `/local/scanspace/${hId}_${fId}.svg`;
+    try {
+      const resp = await fetch(url, { headers: { "Accept": "image/svg+xml" } });
+      if (resp.ok) {
+        const svg = await resp.text();
+        return { svg, house_id: hId, floor_id: fId };
+      }
+    } catch {
+      // ignore
+    }
   }
+
+  return null;
 }
 
 export function getEntityState(hass: HomeAssistant, entityId: string): HassEntity | undefined {
@@ -162,7 +191,6 @@ export function toggleEntity(hass: HomeAssistant, entityId: string): void {
 }
 
 export function moreInfoEntity(hass: HomeAssistant, entityId: string): void {
-  // Dispatch standard HA more-info event
   const event = new CustomEvent("hass-more-info", {
     bubbles: true,
     composed: true,

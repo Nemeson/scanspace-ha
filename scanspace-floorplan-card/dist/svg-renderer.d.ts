@@ -12,7 +12,7 @@ export declare class SvgRenderer {
     private _indexElements;
     private _setIcon;
 }
-export declare function fetchFloorplan(hass: HomeAssistant, houseId: string, floorId?: string): Promise<FloorplanData | null>;
+export declare function fetchFloorplan(hass: HomeAssistant, houseId?: string, floorId?: string, svgUrl?: string): Promise<FloorplanData | null>;
 export declare function getEntityState(hass: HomeAssistant, entityId: string): HassEntity | undefined;
 export declare function toggleEntity(hass: HomeAssistant, entityId: string): void;
 export declare function moreInfoEntity(hass: HomeAssistant, entityId: string): void;
